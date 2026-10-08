@@ -1,0 +1,108 @@
+name: Release Zygisk Module
+
+# 手动触发：把 zip 打成 GitHub Release。
+# 顺带把输入的版本号写进 module.prop（只在 CI 工作区里改，不会推回仓库），
+# 这样装到手机上的模块版本号和 Release tag 一定一致。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号，格式 vX.Y.Z（会作为 tag 和 module.prop 的 version）'
+        required: true
+        type: string
+      notes:
+        description: '发布说明（留空则自动生成）'
+        required: false
+        type: string
+      prerelease:
+        description: '标记为预发布'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64-linux-android
+
+      - name: Set up Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+          add-to-path: false
+
+      - name: Stamp version into module.prop
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::版本号必须是 vX.Y.Z 形式，收到：$VERSION"
+            exit 1
+          fi
+          BASE="${VERSION#v}"
+
+          # versionCode = 主*10000 + 次*100 + 修订（去掉前导零，保证是十进制）
+          normalize() {
+            n="$(printf '%s' "$1" | sed -E 's/^0+//')"
+            if [ -z "$n" ]; then n=0; fi
+            printf '%s' "$n"
+          }
+          MAJOR="$(normalize "$(printf '%s' "$BASE" | cut -d. -f1)")"
+          MINOR="$(normalize "$(printf '%s' "$BASE" | cut -d. -f2)")"
+          PATCH="$(normalize "$(printf '%s' "$BASE" | cut -d. -f3)")"
+          CODE="$(printf '%d%02d%02d' "$MAJOR" "$MINOR" "$PATCH")"
+          # 主版本为 0 时 %d 不补位，会得到 "00100" 这种带前导零的值；
+          # Magisk 用 `test -gt` 比版本号，前导零会被当八进制，必须去掉。
+          CODE="$(normalize "$CODE")"
+
+          sed -i -E "s/^version=.*/version=${VERSION}/" module/module.prop
+          sed -i -E "s/^versionCode=.*/versionCode=${CODE}/" module/module.prop
+
+          grep -qx "version=${VERSION}" module/module.prop || { echo "::error::version 没写进去"; exit 1; }
+          grep -qx "versionCode=${CODE}" module/module.prop || { echo "::error::versionCode 没写进去"; exit 1; }
+          echo "--- module.prop ---"
+          cat module/module.prop
+
+      - name: Build module
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: bash build.sh
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: ${{ inputs.version }}
+          body: ${{ inputs.notes }}
+          generate_release_notes: ${{ inputs.notes == '' }}
+          prerelease: ${{ inputs.prerelease }}
+          files: xiaomi-eu-toolkit-zygisk-*.zip
+
+      - name: Summary
+        run: |
+          {
+            echo "### 已发布 ${{ inputs.version }}"
+            echo ""
+            echo '```'
+            ls -la ./*.zip
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

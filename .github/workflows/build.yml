@@ -1,0 +1,56 @@
+name: Build Zygisk Module
+
+# 手动触发，不同步代码就编译。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64-linux-android
+
+      - name: Set up Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27
+          add-to-path: false
+
+      - name: Build module
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: bash build.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-eu-toolkit-zygisk-arm64-v8a
+          path: xiaomi-eu-toolkit-zygisk-*.zip
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          {
+            echo "### Zygisk 模块构建完成"
+            echo ""
+            echo '```'
+            ls -la ./*.zip
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

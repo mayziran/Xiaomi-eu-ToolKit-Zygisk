@@ -1,0 +1,6 @@
+id=xiaomi_eu_toolkit_zygisk
+name=Xiaomi.eu ToolKit Zygisk
+version=v0.1.0
+versionCode=1
+author=mayziran
+description=按 App 伪装机型品牌（Build.BRAND -> Xiaomi），修复 POCO / xiaomi.eu 上部分 App 不向小米推送注册的问题
