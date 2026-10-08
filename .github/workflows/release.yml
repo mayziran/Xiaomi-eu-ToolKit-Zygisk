@@ -1,7 +1,9 @@
 name: Release Zygisk Module
 
-# 手动触发：把 zip 打成 GitHub Release。
-# 顺带把输入的版本号写进 module.prop（只在 CI 工作区里改，不会推回仓库），
+# 两种触发方式：
+#   1) 手动触发（workflow_dispatch）：填版本号，出包并发 Release
+#   2) 推 tag（git push origin v1.2.3）：同一套流程自动跑
+# 顺带把版本号写进 module.prop（只在 CI 工作区里改，不会推回仓库），
 # 这样装到手机上的模块版本号和 Release tag 一定一致。
 on:
   workflow_dispatch:
@@ -19,6 +21,9 @@ on:
         required: false
         type: boolean
         default: false
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
@@ -51,7 +56,7 @@ jobs:
 
       - name: Stamp version into module.prop
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ inputs.version || github.ref_name }}
         run: |
           set -euo pipefail
           if ! printf '%s' "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -90,17 +95,17 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
-          name: ${{ inputs.version }}
+          tag_name: ${{ inputs.version || github.ref_name }}
+          name: ${{ inputs.version || github.ref_name }}
           body: ${{ inputs.notes }}
           generate_release_notes: ${{ inputs.notes == '' }}
-          prerelease: ${{ inputs.prerelease }}
+          prerelease: ${{ inputs.prerelease || false }}
           files: xiaomi-eu-toolkit-zygisk-*.zip
 
       - name: Summary
         run: |
           {
-            echo "### 已发布 ${{ inputs.version }}"
+            echo "### 已发布 ${{ inputs.version || github.ref_name }}"
             echo ""
             echo '```'
             ls -la ./*.zip

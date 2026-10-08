@@ -86,7 +86,9 @@ pack_module() {
     local out="$1"
     rm -f "$out"
     if command -v zip >/dev/null 2>&1; then
-        (cd "$MODULE_DIR" && zip -r -q "$out" . -x '*.DS_Store')
+        # 显式列顶层条目，不要用 "." —— 避免打包出 "./module.prop" 这种带前缀的条目名，
+        # Magisk / KernelSU 解析 module.prop 时更稳。
+        (cd "$MODULE_DIR" && zip -r -q "$out" module.prop customize.sh META-INF zygisk -x '*.DS_Store')
         return 0
     fi
     echo "==> 没找到 zip 命令，改用 python3 打包"
@@ -115,3 +117,14 @@ pack_module "$PROJECT_ROOT/$ZIP_NAME"
 echo "==> done"
 ls -la "$OUT_SO"
 ls -la "$PROJECT_ROOT/$ZIP_NAME"
+
+# 把 zip 内容打出来：CI 日志里能看到最终结构，出问题一眼可查
+echo "==> zip 内容（module.prop 必须在根目录）"
+python3 - "$PROJECT_ROOT/$ZIP_NAME" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    names = z.namelist()
+    for info in z.infolist():
+        print(f"  {info.file_size:>8}  {oct(info.external_attr >> 16)}  {info.filename}")
+print("  module.prop 在根目录:", "module.prop" in names)
+PY
